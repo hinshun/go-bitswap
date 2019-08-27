@@ -13,7 +13,7 @@ import (
 
 // TaskWorkerCount is the total number of simultaneous threads sending
 // outgoing messages
-var TaskWorkerCount = 16
+var TaskWorkerCount = 32
 
 func (bs *Bitswap) startWorkers(ctx context.Context, px process.Process) {
 
