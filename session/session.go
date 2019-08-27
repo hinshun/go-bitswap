@@ -19,7 +19,7 @@ import (
 
 const (
 	broadcastLiveWantsLimit = 4
-	targetedLiveWantsLimit  = 64
+	targetedLiveWantsLimit  = 128
 )
 
 // WantManager is an interface that can be used to request blocks
