@@ -206,49 +206,46 @@ func (s *Session) run(ctx context.Context) {
 	s.idleTick = time.NewTimer(s.initialSearchDelay)
 	s.periodicSearchTimer = time.NewTimer(s.periodicSearchDelay.NextWaitTime())
 
-	var notHandlingIncoming time.Duration
+	var receiveDuration, wantDuration, cancelDuration, notIncomingDuration time.Duration
 	defer func() {
 		log.LogKV(ctx,
-			"event", "session.notHandlingIncoming",
-			"duration", notHandlingIncoming,
+			"event", "session.run",
+			"receive.duration", receiveDuration,
+			"want.duration", wantDuration,
+			"cancel.duration", cancelDuration,
+			"notincoming.duration", notIncomingDuration,
 		)
 	}()
 
 	for {
+		start := time.Now()
 		select {
 		case oper := <-s.incoming:
 			switch oper.op {
 			case opReceive:
 				s.handleReceive(ctx, oper.from, oper.keys)
+				receiveDuration += time.Now().Sub(start)
 			case opWant:
-				log.LogKV(ctx,
-					"event", "opWant",
-				)
 				s.wantBlocks(ctx, oper.keys)
+				wantDuration += time.Now().Sub(start)
 			case opCancel:
-				log.LogKV(ctx,
-					"event", "opCancel",
-				)
 				s.sw.CancelPending(oper.keys)
+				cancelDuration += time.Now().Sub(start)
 			default:
 				panic("unhandled operation")
 			}
 		case <-s.idleTick.C:
-			start := time.Now()
 			s.handleIdleTick(ctx)
-			notHandlingIncoming += time.Now().Sub(start)
+			notIncomingDuration += time.Now().Sub(start)
 		case <-s.periodicSearchTimer.C:
-			start := time.Now()
 			s.handlePeriodicSearch(ctx)
-			notHandlingIncoming += time.Now().Sub(start)
+			notIncomingDuration += time.Now().Sub(start)
 		case resp := <-s.latencyReqs:
-			start := time.Now()
 			resp <- s.averageLatency()
-			notHandlingIncoming += time.Now().Sub(start)
+			notIncomingDuration += time.Now().Sub(start)
 		case baseTickDelay := <-s.tickDelayReqs:
-			start := time.Now()
 			s.baseTickDelay = baseTickDelay
-			notHandlingIncoming += time.Now().Sub(start)
+			notIncomingDuration += time.Now().Sub(start)
 		case <-ctx.Done():
 			s.handleShutdown()
 			return
