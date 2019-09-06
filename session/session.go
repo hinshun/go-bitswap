@@ -15,6 +15,8 @@ import (
 	loggables "github.com/libp2p/go-libp2p-loggables"
 )
 
+var log = logging.Logger("session")
+
 const (
 	broadcastLiveWantsLimit = 4
 	targetedLiveWantsLimit  = 32
@@ -208,10 +210,19 @@ func (s *Session) run(ctx context.Context) {
 		case oper := <-s.incoming:
 			switch oper.op {
 			case opReceive:
+				log.LogKV(ctx,
+					"event", "opReceive",
+				)
 				s.handleReceive(ctx, oper.from, oper.keys)
 			case opWant:
+				log.LogKV(ctx,
+					"event", "opWant",
+				)
 				s.wantBlocks(ctx, oper.keys)
 			case opCancel:
+				log.LogKV(ctx,
+					"event", "opCancel",
+				)
 				s.sw.CancelPending(oper.keys)
 			default:
 				panic("unhandled operation")
