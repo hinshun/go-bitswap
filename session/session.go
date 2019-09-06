@@ -205,14 +205,20 @@ func (s *Session) SetBaseTickDelay(baseTickDelay time.Duration) {
 func (s *Session) run(ctx context.Context) {
 	s.idleTick = time.NewTimer(s.initialSearchDelay)
 	s.periodicSearchTimer = time.NewTimer(s.periodicSearchDelay.NextWaitTime())
+
+	var notHandlingIncoming time.Duration
+	defer func() {
+		log.LogKV(ctx,
+			"event", "session.notHandlingIncoming",
+			"duration", notHandlingIncoming,
+		)
+	}()
+
 	for {
 		select {
 		case oper := <-s.incoming:
 			switch oper.op {
 			case opReceive:
-				log.LogKV(ctx,
-					"event", "opReceive",
-				)
 				s.handleReceive(ctx, oper.from, oper.keys)
 			case opWant:
 				log.LogKV(ctx,
@@ -228,13 +234,21 @@ func (s *Session) run(ctx context.Context) {
 				panic("unhandled operation")
 			}
 		case <-s.idleTick.C:
+			start := time.Now()
 			s.handleIdleTick(ctx)
+			notHandlingIncoming += time.Now().Sub(start)
 		case <-s.periodicSearchTimer.C:
+			start := time.Now()
 			s.handlePeriodicSearch(ctx)
+			notHandlingIncoming += time.Now().Sub(start)
 		case resp := <-s.latencyReqs:
+			start := time.Now()
 			resp <- s.averageLatency()
+			notHandlingIncoming += time.Now().Sub(start)
 		case baseTickDelay := <-s.tickDelayReqs:
+			start := time.Now()
 			s.baseTickDelay = baseTickDelay
+			notHandlingIncoming += time.Now().Sub(start)
 		case <-ctx.Done():
 			s.handleShutdown()
 			return
