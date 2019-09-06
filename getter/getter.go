@@ -3,6 +3,7 @@ package getter
 import (
 	"context"
 	"errors"
+	"time"
 
 	notifications "github.com/ipfs/go-bitswap/notifications"
 	logging "github.com/ipfs/go-log"
@@ -106,6 +107,7 @@ func handleIncoming(ctx context.Context, sessctx context.Context, remaining *cid
 		cfun(remaining.Keys())
 	}()
 
+	start := time.Now()
 	for {
 		select {
 		case blk, ok := <-in:
@@ -115,6 +117,10 @@ func handleIncoming(ctx context.Context, sessctx context.Context, remaining *cid
 				return
 			}
 
+			log.LogKV(ctx,
+				"event", "handleIncoming",
+				"duration", time.Now().Sub(start),
+			)
 			remaining.Remove(blk.Cid())
 			select {
 			case out <- blk:
