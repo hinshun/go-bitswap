@@ -218,9 +218,9 @@ func (s *Session) run(ctx context.Context) {
 	}()
 
 	for {
-		start := time.Now()
 		select {
 		case oper := <-s.incoming:
+			start := time.Now()
 			switch oper.op {
 			case opReceive:
 				s.handleReceive(ctx, oper.from, oper.keys)
@@ -235,15 +235,19 @@ func (s *Session) run(ctx context.Context) {
 				panic("unhandled operation")
 			}
 		case <-s.idleTick.C:
+			start := time.Now()
 			s.handleIdleTick(ctx)
 			notIncomingDuration += time.Now().Sub(start)
 		case <-s.periodicSearchTimer.C:
+			start := time.Now()
 			s.handlePeriodicSearch(ctx)
 			notIncomingDuration += time.Now().Sub(start)
 		case resp := <-s.latencyReqs:
+			start := time.Now()
 			resp <- s.averageLatency()
 			notIncomingDuration += time.Now().Sub(start)
 		case baseTickDelay := <-s.tickDelayReqs:
+			start := time.Now()
 			s.baseTickDelay = baseTickDelay
 			notIncomingDuration += time.Now().Sub(start)
 		case <-ctx.Done():
