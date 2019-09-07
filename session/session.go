@@ -86,6 +86,7 @@ type Session struct {
 	fetchcnt            int
 	consecutiveTicks    int
 	initialSearchDelay  time.Duration
+	waitingForIncoming  time.Duration
 	periodicSearchDelay delay.D
 	// identifiers
 	notif notifications.PubSub
@@ -136,8 +137,10 @@ func (s *Session) ReceiveFrom(from peer.ID, ks []cid.Cid) {
 		return
 	}
 
+	start := time.Now()
 	select {
 	case s.incoming <- op{op: opReceive, from: from, keys: interested}:
+		s.waitingForIncoming += time.Now().Sub(start)
 	case <-s.ctx.Done():
 	}
 }
@@ -160,15 +163,19 @@ func (s *Session) GetBlocks(ctx context.Context, keys []cid.Cid) (<-chan blocks.
 
 	return bsgetter.AsyncGetBlocks(ctx, s.ctx, keys, s.notif,
 		func(ctx context.Context, keys []cid.Cid) {
+			start := time.Now()
 			select {
 			case s.incoming <- op{op: opWant, keys: keys}:
+				s.waitingForIncoming += time.Now().Sub(start)
 			case <-ctx.Done():
 			case <-s.ctx.Done():
 			}
 		},
 		func(keys []cid.Cid) {
+			start := time.Now()
 			select {
 			case s.incoming <- op{op: opCancel, keys: keys}:
+				s.waitingForIncoming += time.Now().Sub(start)
 			case <-s.ctx.Done():
 			}
 		},
@@ -210,6 +217,7 @@ func (s *Session) run(ctx context.Context) {
 	defer func() {
 		log.LogKV(ctx,
 			"event", "session.run",
+			"waitingForIncoming.duration", s.waitingForIncoming,
 			"receive.duration", receiveDuration,
 			"want.duration", wantDuration,
 			"cancel.duration", cancelDuration,
