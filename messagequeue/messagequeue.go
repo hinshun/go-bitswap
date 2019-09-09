@@ -36,6 +36,9 @@ type MessageQueue struct {
 	outgoingWork chan struct{}
 	done         chan struct{}
 
+	// for capturing metrics
+	firstMessageSent bool
+
 	// do not touch out of run loop
 	wl                    *wantlist.SessionTrackedWantlist
 	nextMessage           bsmsg.BitSwapMessage
@@ -235,6 +238,12 @@ func (mq *MessageQueue) sendMessage() {
 
 	for i := 0; i < maxRetries; i++ { // try to send this message until we fail.
 		if mq.attemptSendAndRecovery(message) {
+			if !mq.firstMessageSent {
+				log.LogKV(mq.ctx,
+					"event", "firstMessageSent",
+				)
+				mq.firstMessageSent = true
+			}
 			return
 		}
 	}
