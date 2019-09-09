@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	bsgetter "github.com/ipfs/go-bitswap/getter"
@@ -14,6 +15,7 @@ import (
 	logging "github.com/ipfs/go-log"
 	peer "github.com/libp2p/go-libp2p-core/peer"
 	loggables "github.com/libp2p/go-libp2p-loggables"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 var log = logging.Logger("bs:sess")
@@ -57,10 +59,10 @@ const (
 )
 
 type op struct {
-	op        opType
-	from      peer.ID
-	keys      []cid.Cid
-	haves     []cid.Cid
+	op    opType
+	from  peer.ID
+	keys  []cid.Cid
+	haves []cid.Cid
 }
 
 // Session holds state for an individual bitswap transfer operation.
@@ -96,6 +98,8 @@ type Session struct {
 	notif notifications.PubSub
 	uuid  logging.Loggable
 	id    uint64
+
+	culmTimeWaitedForReceiveFrom time.Duration
 }
 
 // New creates a new bitswap session whose lifetime is bounded by the
@@ -145,6 +149,16 @@ func (s *Session) ReceiveFrom(from peer.ID, ks []cid.Cid, haves []cid.Cid, dontH
 	if len(interestedKs) > 0 || len(wantedHaves) == 0 || wantedDontHavesCount > 0 {
 		log.Infof("Ses%d: ReceiveFrom %s: %d / %d blocks, %d / %d haves, %d / %d dont haves\n",
 			s.id, from, len(interestedKs), len(ks), len(wantedHaves), len(haves), wantedDontHavesCount, len(dontHaves))
+
+		if opentracing.SpanFromContext(s.ctx) != nil {
+			log.LogKV(s.ctx,
+				"event", "receiveFrom",
+				"from", from,
+				"interested", fmt.Sprintf("%d / %d blocks", len(interestedKs), len(ks)),
+				"haves", fmt.Sprintf("%d / %d blocks", len(wantedHaves), len(haves)),
+				"dont-haves", fmt.Sprintf("%d / %d blocks", wantedDontHavesCount, len(dontHaves)),
+			)
+		}
 	}
 
 	if len(interestedKs) == 0 && len(wantedHaves) == 0 {
@@ -155,12 +169,21 @@ func (s *Session) ReceiveFrom(from peer.ID, ks []cid.Cid, haves []cid.Cid, dontH
 	// the peer set
 	size := s.peers.Size()
 	s.peers.Add(from)
-	if (s.peers.Size() > size) {
+	if s.peers.Size() > size {
 		log.Infof("Ses%d: Added peer %s to session: %d peers\n", s.id, from, s.peers.Size())
+		if opentracing.SpanFromContext(s.ctx) != nil {
+			log.LogKV(s.ctx,
+				"event", "addedPeer",
+				"peer", from,
+				"peerCount", s.peers.Size(),
+			)
+		}
 	}
 
+	start := time.Now()
 	select {
 	case s.incoming <- op{op: opReceive, from: from, keys: interestedKs, haves: wantedHaves}:
+		s.culmTimeWaitedForReceiveFrom += time.Now().Sub(start)
 	case <-s.ctx.Done():
 	}
 }
@@ -264,6 +287,17 @@ func (s *Session) SetBaseTickDelay(baseTickDelay time.Duration) {
 // Session run loop -- everything function below here should not be called
 // of this loop
 func (s *Session) run(ctx context.Context) {
+	defer func() {
+		if opentracing.SpanFromContext(ctx) == nil {
+			return
+		}
+
+		log.LogKV(ctx,
+			"event", "sessionRunEnd",
+			"culmTimeWaitedForReceiveFrom", s.culmTimeWaitedForReceiveFrom,
+		)
+	}()
+
 	s.idleTick = time.NewTimer(s.initialSearchDelay)
 	s.periodicSearchTimer = time.NewTimer(s.periodicSearchDelay.NextWaitTime())
 	for {

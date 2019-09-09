@@ -2,12 +2,17 @@ package peermanager
 
 import (
 	"context"
+	"time"
 
 	bsmsg "github.com/ipfs/go-bitswap/message"
 	wantlist "github.com/ipfs/go-bitswap/wantlist"
+	logging "github.com/ipfs/go-log"
+	opentracing "github.com/opentracing/opentracing-go"
 
 	peer "github.com/libp2p/go-libp2p-core/peer"
 )
+
+var log = logging.Logger("bitswap")
 
 // PeerQueue provides a queue of messages to be sent for a single peer.
 type PeerQueue interface {
@@ -32,15 +37,32 @@ type PeerManager struct {
 
 	createPeerQueue PeerQueueFactory
 	ctx             context.Context
+
+	culmTimeWaitedToSendMessage time.Duration
 }
 
 // New creates a new PeerManager, given a context and a peerQueueFactory.
 func New(ctx context.Context, createPeerQueue PeerQueueFactory) *PeerManager {
-	return &PeerManager{
+	pm := &PeerManager{
 		peerQueues:      make(map[peer.ID]*peerQueueInstance),
 		createPeerQueue: createPeerQueue,
 		ctx:             ctx,
 	}
+
+	go func() {
+		if opentracing.SpanFromContext(ctx) == nil {
+			return
+		}
+
+		for _ = range time.Tick(time.Second) {
+			log.LogKV(ctx,
+				"event", "peerManagerTick",
+				"culmTimeWaitedToSendMessage", pm.culmTimeWaitedToSendMessage,
+			)
+		}
+	}()
+
+	return pm
 }
 
 // ConnectedPeers returns a list of peers this PeerManager is managing.
@@ -84,6 +106,11 @@ func (pm *PeerManager) Disconnected(p peer.ID) {
 // SendMessage is called to send a message to all or some peers in the pool;
 // if targets is nil, it sends to all.
 func (pm *PeerManager) SendMessage(entries []bsmsg.Entry, targets []peer.ID, from uint64) {
+	start := time.Now()
+	defer func() {
+		pm.culmTimeWaitedToSendMessage += time.Now().Sub(start)
+	}()
+
 	if len(targets) == 0 {
 		for _, p := range pm.peerQueues {
 			p.pq.AddMessage(entries, from)

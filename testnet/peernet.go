@@ -29,7 +29,7 @@ func (pn *peernet) Adapter(p tnet.Identity) bsnet.BitSwapNetwork {
 		panic(err.Error())
 	}
 	routing := pn.routingserver.ClientWithDatastore(context.TODO(), p, ds.NewMapDatastore())
-	return bsnet.NewFromIpfsHost(client, routing)
+	return bsnet.NewFromIpfsHost(context.Background(), client, routing)
 }
 
 func (pn *peernet) HasPeer(p peer.ID) bool {

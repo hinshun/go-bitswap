@@ -3,9 +3,11 @@ package getter
 import (
 	"context"
 	"errors"
+	"time"
 
 	notifications "github.com/ipfs/go-bitswap/notifications"
 	logging "github.com/ipfs/go-log"
+	opentracing "github.com/opentracing/opentracing-go"
 
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
@@ -97,9 +99,18 @@ func handleIncoming(ctx context.Context, sessctx context.Context, remaining *cid
 
 	ctx, cancel := context.WithCancel(ctx)
 
+	var culmTimeWaitedForAsyncOutChan time.Duration
+
 	// Clean up before exiting this function, and call the cancel function on
 	// any remaining keys
 	defer func() {
+		if opentracing.SpanFromContext(ctx) != nil {
+			log.LogKV(ctx,
+				"event", "handleIncoming",
+				"culmTimeWaitedForAsyncOutChan", culmTimeWaitedForAsyncOutChan,
+			)
+		}
+
 		cancel()
 		close(out)
 		// can't just defer this call on its own, arguments are resolved *when* the defer is created
@@ -116,8 +127,11 @@ func handleIncoming(ctx context.Context, sessctx context.Context, remaining *cid
 			}
 
 			remaining.Remove(blk.Cid())
+
+			start := time.Now()
 			select {
 			case out <- blk:
+				culmTimeWaitedForAsyncOutChan += time.Now().Sub(start)
 			case <-ctx.Done():
 				return
 			case <-sessctx.Done():

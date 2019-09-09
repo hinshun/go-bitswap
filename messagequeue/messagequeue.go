@@ -8,9 +8,11 @@ import (
 
 	bsmsg "github.com/ipfs/go-bitswap/message"
 	bsnet "github.com/ipfs/go-bitswap/network"
+	"github.com/ipfs/go-bitswap/timer"
 	wantlist "github.com/ipfs/go-bitswap/wantlist"
 	logging "github.com/ipfs/go-log"
 	peer "github.com/libp2p/go-libp2p-core/peer"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 var log = logging.Logger("bitswap")
@@ -47,11 +49,13 @@ type MessageQueue struct {
 	rebroadcastIntervalLk sync.RWMutex
 	rebroadcastInterval   time.Duration
 	rebroadcastTimer      *time.Timer
+
+	culmTimeWaitedToAddMessage time.Duration
 }
 
 // New creats a new MessageQueue.
 func New(ctx context.Context, p peer.ID, network MessageNetwork) *MessageQueue {
-	return &MessageQueue{
+	mq := &MessageQueue{
 		ctx:                 ctx,
 		wl:                  wantlist.NewSessionTrackedWantlist(),
 		network:             network,
@@ -60,6 +64,22 @@ func New(ctx context.Context, p peer.ID, network MessageNetwork) *MessageQueue {
 		done:                make(chan struct{}),
 		rebroadcastInterval: defaultRebroadcastInterval,
 	}
+
+	go func() {
+		if opentracing.SpanFromContext(ctx) == nil {
+			return
+		}
+
+		for _ = range time.Tick(time.Second) {
+			log.LogKV(ctx,
+				"event", "messageQueueTick",
+				"peer", p.Pretty(),
+				"culmTimeWaitedToAddMessage", mq.culmTimeWaitedToAddMessage,
+			)
+		}
+	}()
+
+	return mq
 }
 
 // AddMessage adds new entries to an outgoing message for a given session.
@@ -67,8 +87,11 @@ func (mq *MessageQueue) AddMessage(entries []bsmsg.Entry, ses uint64) {
 	if !mq.addEntries(entries, ses) {
 		return
 	}
+
+	start := time.Now()
 	select {
 	case mq.outgoingWork <- struct{}{}:
+		mq.culmTimeWaitedToAddMessage += time.Now().Sub(start)
 	default:
 	}
 }
@@ -238,11 +261,12 @@ func (mq *MessageQueue) sendMessage() {
 
 	for i := 0; i < maxRetries; i++ { // try to send this message until we fail.
 		if mq.attemptSendAndRecovery(message) {
-			if !mq.firstMessageSent {
+			if opentracing.SpanFromContext(mq.ctx) != nil && !mq.firstMessageSent {
+				mq.firstMessageSent = true
 				log.LogKV(mq.ctx,
 					"event", "firstMessageSent",
+					"time", time.Now().Sub(timer.Time(mq.ctx)),
 				)
-				mq.firstMessageSent = true
 			}
 			return
 		}

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	bssrs "github.com/ipfs/go-bitswap/sessionrequestsplitter"
+	"github.com/ipfs/go-bitswap/timer"
 	delay "github.com/ipfs/go-ipfs-delay"
+	opentracing "github.com/opentracing/opentracing-go"
 
 	decision "github.com/ipfs/go-bitswap/decision"
 	bsgetter "github.com/ipfs/go-bitswap/getter"
@@ -98,6 +100,8 @@ func New(parent context.Context, network bsnet.BitSwapNetwork,
 	// shouldn't accept a context anymore. Clients should probably use Close()
 	// exclusively. We should probably find another way to share logging data
 	ctx, cancelFunc := context.WithCancel(parent)
+	ctx = timer.WithTime(ctx, time.Now())
+
 	ctx = metrics.CtxSubScope(ctx, "bitswap")
 	dupHist := metrics.NewCtx(ctx, "recv_dup_blocks_bytes", "Summary of duplicate"+
 		" data blocks recived").Histogram(metricsBuckets)
@@ -131,10 +135,11 @@ func New(parent context.Context, network bsnet.BitSwapNetwork,
 	sessionRequestSplitterFactory := func(ctx context.Context) bssession.RequestSplitter {
 		return bssrs.New(ctx)
 	}
-	notif := notifications.New()
+	notif := notifications.New(ctx)
 	peerBroker := bspb.New(ctx, wm)
 
 	bs := &Bitswap{
+		ctx:              ctx,
 		blockstore:       bstore,
 		engine:           decision.NewEngine(ctx, bstore, network.ConnectionManager()), // TODO close the engine with Close() method
 		network:          network,
@@ -181,6 +186,8 @@ func New(parent context.Context, network bsnet.BitSwapNetwork,
 
 // Bitswap instances implement the bitswap protocol.
 type Bitswap struct {
+	ctx context.Context
+
 	// the wantlist tracks global wants for bitswap
 	wm *bswm.WantManager
 
@@ -229,6 +236,9 @@ type Bitswap struct {
 
 	// how often to rebroadcast providing requests to find more optimized providers
 	rebroadcastDelay delay.D
+
+	// trace logging
+	firstBlockReceived bool
 }
 
 type counters struct {
@@ -303,6 +313,16 @@ func (bs *Bitswap) receiveBlocksFrom(ctx context.Context, from peer.ID, blks []b
 				wanted = append(wanted, b)
 			} else {
 				log.Debugf("[recv] block not in wantlist; cid=%s, peer=%s", b.Cid(), from)
+			}
+		}
+
+		if opentracing.SpanFromContext(bs.ctx) != nil && len(wanted) > 0 {
+			if !bs.firstBlockReceived {
+				bs.firstBlockReceived = true
+				log.LogKV(bs.ctx,
+					"event", "firstBlockReceived",
+					"time", time.Now().Sub(timer.Time(ctx)),
+				)
 			}
 		}
 	}

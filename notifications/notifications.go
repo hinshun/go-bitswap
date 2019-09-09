@@ -3,13 +3,18 @@ package notifications
 import (
 	"context"
 	"sync"
+	"time"
 
 	pubsub "github.com/cskr/pubsub"
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
+	logging "github.com/ipfs/go-log"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
-const bufferSize = 16
+var log = logging.Logger("bitswap")
+
+const bufferSize = 64
 
 // PubSub is a simple interface for publishing blocks and being able to subscribe
 // for cids. It's used internally by bitswap to decouple receiving blocks
@@ -21,11 +26,28 @@ type PubSub interface {
 }
 
 // New generates a new PubSub interface.
-func New() PubSub {
-	return &impl{
+func New(ctx context.Context) PubSub {
+	ps := &impl{
+		ctx:     ctx,
 		wrapped: *pubsub.New(bufferSize),
 		closed:  make(chan struct{}),
 	}
+
+	go func() {
+		if opentracing.SpanFromContext(ctx) == nil {
+			return
+		}
+
+		for _ = range time.Tick(time.Second) {
+			log.LogKV(ctx,
+				"event", "pubSubTick",
+				"culmTimeWaitingToPublish", ps.culmTimeWaitingToPublish,
+				"culmTimeWaitingToSubscribe", ps.culmTimeWaitingToSubscribe,
+			)
+		}
+	}()
+
+	return ps
 }
 
 type impl struct {
@@ -33,6 +55,10 @@ type impl struct {
 	wrapped pubsub.PubSub
 
 	closed chan struct{}
+
+	ctx                        context.Context
+	culmTimeWaitingToPublish   time.Duration
+	culmTimeWaitingToSubscribe time.Duration
 }
 
 func (ps *impl) Publish(block blocks.Block) {
@@ -44,7 +70,9 @@ func (ps *impl) Publish(block blocks.Block) {
 	default:
 	}
 
+	start := time.Now()
 	ps.wrapped.Pub(block, block.Cid().KeyString())
+	ps.culmTimeWaitingToPublish += time.Now().Sub(start)
 }
 
 func (ps *impl) Shutdown() {
@@ -84,7 +112,10 @@ func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Bl
 
 	// AddSubOnceEach listens for each key in the list, and closes the channel
 	// once all keys have been received
+	start := time.Now()
 	ps.wrapped.AddSubOnceEach(valuesCh, toStrings(keys)...)
+	ps.culmTimeWaitingToSubscribe += time.Now().Sub(start)
+
 	go func() {
 		defer func() {
 			close(blocksCh)

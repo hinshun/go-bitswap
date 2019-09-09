@@ -3,11 +3,13 @@ package wantmanager
 import (
 	"context"
 	"math"
+	"time"
 
 	bsmsg "github.com/ipfs/go-bitswap/message"
 	bspb "github.com/ipfs/go-bitswap/peerbroker"
 	wantlist "github.com/ipfs/go-bitswap/wantlist"
 	logging "github.com/ipfs/go-log"
+	opentracing "github.com/opentracing/opentracing-go"
 
 	cid "github.com/ipfs/go-cid"
 	metrics "github.com/ipfs/go-metrics-interface"
@@ -54,6 +56,15 @@ type WantManager struct {
 
 	peerHandler   PeerHandler
 	wantlistGauge metrics.Gauge
+
+	culmTimeWaitedForCurrentWants          time.Duration
+	culmTimeWaitedForCurrentBroadcastWants time.Duration
+	culmTimeWaitedForAvailablePeers        time.Duration
+	culmTimeWaitedForRegisterPeerAvail     time.Duration
+	culmTimeWaitedForConnected             time.Duration
+	culmTimeWaitedForDisconnected          time.Duration
+	culmTimeWaitedForWantManagerHandle     time.Duration
+	culmTimeWaitedForWantManagerAddEntries time.Duration
 }
 
 // New initializes a new WantManager for a given context.
@@ -61,7 +72,7 @@ func New(ctx context.Context, peerHandler PeerHandler) *WantManager {
 	ctx, cancel := context.WithCancel(ctx)
 	wantlistGauge := metrics.NewCtx(ctx, "wantlist_total",
 		"Number of items in wantlist.").Gauge()
-	return &WantManager{
+	wm := &WantManager{
 		wantMessages:  make(chan wantMessage, 10),
 		wl:            wantlist.NewSessionTrackedWantlist(),
 		bcwl:          wantlist.NewSessionTrackedWantlist(),
@@ -71,31 +82,76 @@ func New(ctx context.Context, peerHandler PeerHandler) *WantManager {
 		wantlistGauge: wantlistGauge,
 		peerCounts:    make(map[peer.ID]int),
 	}
+
+	go func() {
+		if opentracing.SpanFromContext(ctx) == nil {
+			return
+		}
+
+		for _ = range time.Tick(time.Second) {
+			log.LogKV(ctx,
+				"event", "wantManagerTick",
+				"culmTimeWaitedForCurrentWants", wm.culmTimeWaitedForCurrentWants,
+				"culmTimeWaitedForCurrentBroadcastWants", wm.culmTimeWaitedForCurrentBroadcastWants,
+				"culmTimeWaitedForAvailablePeers", wm.culmTimeWaitedForAvailablePeers,
+				"culmTimeWaitedForRegisterPeerAvail", wm.culmTimeWaitedForRegisterPeerAvail,
+				"culmTimeWaitedForConnected", wm.culmTimeWaitedForConnected,
+				"culmTimeWaitedForDisconnected", wm.culmTimeWaitedForDisconnected,
+				"culmTimeWaitedForWantManagerHandle", wm.culmTimeWaitedForWantManagerHandle,
+				"culmTimeWaitedForWantManagerAddEntries", wm.culmTimeWaitedForWantManagerAddEntries,
+			)
+		}
+	}()
+
+	return wm
 }
 
 // WantBlocks adds the given cids to the wantlist, tracked by the given session.
 func (wm *WantManager) WantBlocks(ctx context.Context, ks []cid.Cid, wantHaves []cid.Cid, sendDontHave bool, peers []peer.ID, ses uint64) {
 	log.Debugf("[wantlist] want blocks; cids=%s, peers=%s, ses=%d", ks, peers, ses)
+	if opentracing.SpanFromContext(ctx) != nil {
+		log.LogKV(ctx,
+			"event", "wantBlocks",
+			"wants", len(ks),
+			"peers", len(peers),
+		)
+	}
 	wm.addEntries(ctx, ks, wantHaves, sendDontHave, peers, false, ses)
 }
 
 // CancelWants removes the given cids from the wantlist, tracked by the given session.
 func (wm *WantManager) CancelWants(ctx context.Context, ks []cid.Cid, peers []peer.ID, ses uint64) {
 	log.Debugf("[wantlist] unwant blocks; cids=%s, peers=%s, ses=%d", ks, peers, ses)
-	wm.addEntries(context.Background(), ks, []cid.Cid{}, false, peers, true, ses)
+	if opentracing.SpanFromContext(ctx) != nil {
+		log.LogKV(ctx,
+			"event", "unwantBlocks",
+			"cancels", len(ks),
+			"peers", len(peers),
+		)
+	}
+	wm.addEntries(ctx, ks, []cid.Cid{}, false, peers, true, ses)
 }
 
 // CancelWantHaves removes the given want-have cids from the wantlist, tracked by the given session.
 func (wm *WantManager) CancelWantHaves(ctx context.Context, wantHaves []cid.Cid, peers []peer.ID, ses uint64) {
 	log.Debugf("[wantlist] rm want-haves; want-haves=%s, peers=%s, ses=%d", wantHaves, peers, ses)
-	wm.addEntries(context.Background(), nil, wantHaves, false, peers, true, ses)
+	if opentracing.SpanFromContext(ctx) != nil {
+		log.LogKV(ctx,
+			"event", "rmWantHaves",
+			"want-haves", len(wantHaves),
+			"peers", len(peers),
+		)
+	}
+	wm.addEntries(ctx, nil, wantHaves, false, peers, true, ses)
 }
 
 // CurrentWants returns the list of current wants.
 func (wm *WantManager) CurrentWants() []wantlist.Entry {
 	resp := make(chan []wantlist.Entry, 1)
+	start := time.Now()
 	select {
 	case wm.wantMessages <- &currentWantsMessage{resp}:
+		wm.culmTimeWaitedForCurrentWants += time.Now().Sub(start)
 	case <-wm.ctx.Done():
 		return nil
 	}
@@ -110,8 +166,10 @@ func (wm *WantManager) CurrentWants() []wantlist.Entry {
 // CurrentBroadcastWants returns the current list of wants that are broadcasts.
 func (wm *WantManager) CurrentBroadcastWants() []wantlist.Entry {
 	resp := make(chan []wantlist.Entry, 1)
+	start := time.Now()
 	select {
 	case wm.wantMessages <- &currentBroadcastWantsMessage{resp}:
+		wm.culmTimeWaitedForCurrentBroadcastWants += time.Now().Sub(start)
 	case <-wm.ctx.Done():
 		return nil
 	}
@@ -125,8 +183,10 @@ func (wm *WantManager) CurrentBroadcastWants() []wantlist.Entry {
 
 func (wm *WantManager) AvailablePeers() []peer.ID {
 	resp := make(chan []peer.ID, 1)
+	start := time.Now()
 	select {
 	case wm.wantMessages <- &availablePeersMessage{resp}:
+		wm.culmTimeWaitedForAvailablePeers += time.Now().Sub(start)
 	case <-wm.ctx.Done():
 		return []peer.ID{}
 	}
@@ -139,24 +199,30 @@ func (wm *WantManager) AvailablePeers() []peer.ID {
 }
 
 func (wm *WantManager) RegisterPeerAvailabilityListener(l bspb.PeerAvailabilityListener) {
+	start := time.Now()
 	select {
 	case wm.wantMessages <- &registerPAL{l}:
+		wm.culmTimeWaitedForRegisterPeerAvail += time.Now().Sub(start)
 	case <-wm.ctx.Done():
 	}
 }
 
 // Connected is called when a new peer is connected
 func (wm *WantManager) Connected(p peer.ID) {
+	start := time.Now()
 	select {
 	case wm.wantMessages <- &connectedMessage{p}:
+		wm.culmTimeWaitedForConnected += time.Now().Sub(start)
 	case <-wm.ctx.Done():
 	}
 }
 
 // Disconnected is called when a peer is disconnected
 func (wm *WantManager) Disconnected(p peer.ID) {
+	start := time.Now()
 	select {
 	case wm.wantMessages <- &disconnectedMessage{p}:
+		wm.culmTimeWaitedForDisconnected += time.Now().Sub(start)
 	case <-wm.ctx.Done():
 	}
 }
@@ -177,7 +243,9 @@ func (wm *WantManager) run() {
 	for {
 		select {
 		case message := <-wm.wantMessages:
+			start := time.Now()
 			message.handle(wm)
+			wm.culmTimeWaitedForWantManagerHandle += time.Now().Sub(start)
 		case <-wm.ctx.Done():
 			return
 		}
@@ -200,8 +268,11 @@ func (wm *WantManager) addEntries(ctx context.Context, ks []cid.Cid, wantHaves [
 			Entry:  wantlist.NewRefEntry(k, maxPriority-i, true, sendDontHave),
 		})
 	}
+
+	start := time.Now()
 	select {
 	case wm.wantMessages <- &wantSet{entries: entries, targets: targets, sessid: ses}:
+		wm.culmTimeWaitedForWantManagerAddEntries += time.Now().Sub(start)
 	case <-wm.ctx.Done():
 	case <-ctx.Done():
 	}

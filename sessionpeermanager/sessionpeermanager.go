@@ -8,10 +8,14 @@ import (
 	"time"
 
 	bssd "github.com/ipfs/go-bitswap/sessiondata"
+	logging "github.com/ipfs/go-log"
+	opentracing "github.com/opentracing/opentracing-go"
 
 	cid "github.com/ipfs/go-cid"
 	peer "github.com/libp2p/go-libp2p-core/peer"
 )
+
+var log = logging.Logger("bitswap")
 
 const (
 	defaultTimeoutDuration = 5 * time.Second
@@ -52,6 +56,8 @@ type SessionPeerManager struct {
 	optimizedPeersArr   []peer.ID
 	broadcastLatency    *latencyTracker
 	timeoutDuration     time.Duration
+
+	culmTimeWaitedForPeerMessages time.Duration
 }
 
 // New creates a new SessionPeerManager
@@ -69,6 +75,19 @@ func New(ctx context.Context, id uint64, tagger PeerTagger, providerFinder PeerP
 
 	spm.tag = fmt.Sprint("bs-ses-", id)
 
+	go func() {
+		if opentracing.SpanFromContext(ctx) == nil {
+			return
+		}
+
+		for _ = range time.Tick(time.Second) {
+			log.LogKV(ctx,
+				"event", "sessionPeerManagerTick",
+				"culmTimeWaitedForPeerMessages", spm.culmTimeWaitedForPeerMessages,
+			)
+		}
+	}()
+
 	go spm.run(ctx)
 	return spm
 }
@@ -76,9 +95,10 @@ func New(ctx context.Context, id uint64, tagger PeerTagger, providerFinder PeerP
 // RecordPeerResponse records that a peer received some blocks, and adds the
 // peer to the list of peers if it wasn't already added
 func (spm *SessionPeerManager) RecordPeerResponse(p peer.ID, ks []cid.Cid) {
-
+	start := time.Now()
 	select {
 	case spm.peerMessages <- &peerResponseMessage{p, ks}:
+		spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 	case <-spm.ctx.Done():
 	}
 }
@@ -86,16 +106,20 @@ func (spm *SessionPeerManager) RecordPeerResponse(p peer.ID, ks []cid.Cid) {
 // RecordCancels records the fact that cancellations were sent to peers,
 // so if blocks don't arrive, don't let it affect the peer's timeout
 func (spm *SessionPeerManager) RecordCancels(ks []cid.Cid) {
+	start := time.Now()
 	select {
 	case spm.peerMessages <- &cancelMessage{ks}:
+		spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 	case <-spm.ctx.Done():
 	}
 }
 
 // RecordPeerRequests records that a given set of peers requested the given cids.
 func (spm *SessionPeerManager) RecordPeerRequests(p []peer.ID, ks []cid.Cid) {
+	start := time.Now()
 	select {
 	case spm.peerMessages <- &peerRequestMessage{p, ks}:
+		spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 	case <-spm.ctx.Done():
 	}
 }
@@ -105,9 +129,11 @@ func (spm *SessionPeerManager) RecordPeerRequests(p []peer.ID, ks []cid.Cid) {
 func (spm *SessionPeerManager) GetOptimizedPeers() []bssd.OptimizedPeer {
 	// right now this just returns all peers, but soon we might return peers
 	// ordered by optimization, or only a subset
+	start := time.Now()
 	resp := make(chan []bssd.OptimizedPeer, 1)
 	select {
 	case spm.peerMessages <- &getPeersMessage{resp}:
+		spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 	case <-spm.ctx.Done():
 		return nil
 	}
@@ -126,8 +152,10 @@ func (spm *SessionPeerManager) FindMorePeers(ctx context.Context, c cid.Cid) {
 	go func(k cid.Cid) {
 		for p := range spm.providerFinder.FindProvidersAsync(ctx, k) {
 
+			start := time.Now()
 			select {
 			case spm.peerMessages <- &peerFoundMessage{p}:
+				spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 			case <-ctx.Done():
 			case <-spm.ctx.Done():
 			}
@@ -138,8 +166,10 @@ func (spm *SessionPeerManager) FindMorePeers(ctx context.Context, c cid.Cid) {
 // SetTimeoutDuration changes the length of time used to timeout recording of
 // requests
 func (spm *SessionPeerManager) SetTimeoutDuration(timeoutDuration time.Duration) {
+	start := time.Now()
 	select {
 	case spm.peerMessages <- &setTimeoutMessage{timeoutDuration}:
+		spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 	case <-spm.ctx.Done():
 	}
 }
@@ -249,8 +279,10 @@ type peerRequestMessage struct {
 
 func (spm *SessionPeerManager) makeTimeout(p peer.ID) afterTimeoutFunc {
 	return func(k cid.Cid) {
+		start := time.Now()
 		select {
 		case spm.peerMessages <- &peerTimeoutMessage{p, k}:
+			spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 		case <-spm.ctx.Done():
 		}
 	}
@@ -259,8 +291,10 @@ func (spm *SessionPeerManager) makeTimeout(p peer.ID) afterTimeoutFunc {
 func (prm *peerRequestMessage) handle(spm *SessionPeerManager) {
 	if prm.peers == nil {
 		spm.broadcastLatency.SetupRequests(prm.keys, spm.timeoutDuration, func(k cid.Cid) {
+			start := time.Now()
 			select {
 			case spm.peerMessages <- &broadcastTimeoutMessage{k}:
+				spm.culmTimeWaitedForPeerMessages += time.Now().Sub(start)
 			case <-spm.ctx.Done():
 			}
 		})

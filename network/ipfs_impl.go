@@ -28,13 +28,14 @@ var log = logging.Logger("bitswap_network")
 var sendMessageTimeout = time.Minute * 10
 
 // NewFromIpfsHost returns a BitSwapNetwork supported by underlying IPFS host.
-func NewFromIpfsHost(host host.Host, r routing.ContentRouting, opts ...NetOpt) BitSwapNetwork {
+func NewFromIpfsHost(ctx context.Context, host host.Host, r routing.ContentRouting, opts ...NetOpt) BitSwapNetwork {
 	s := Settings{}
 	for _, opt := range opts {
 		opt(&s)
 	}
 
 	bitswapNetwork := impl{
+		ctx:     ctx,
 		host:    host,
 		routing: r,
 
@@ -48,6 +49,7 @@ func NewFromIpfsHost(host host.Host, r routing.ContentRouting, opts ...NetOpt) B
 // impl transforms the ipfs network interface, which sends and receives
 // NetMessage objects, into the bitswap network interface.
 type impl struct {
+	ctx     context.Context
 	host    host.Host
 	routing routing.ContentRouting
 
@@ -207,9 +209,8 @@ func (bsnet *impl) handleNewStream(s network.Stream) {
 		}
 
 		p := s.Conn().RemotePeer()
-		ctx := context.Background()
 		log.Debugf("bitswap net handleNewStream from %s", s.Conn().RemotePeer())
-		bsnet.receiver.ReceiveMessage(ctx, p, received)
+		bsnet.receiver.ReceiveMessage(bsnet.ctx, p, received)
 		atomic.AddUint64(&bsnet.stats.MessagesRecvd, 1)
 	}
 }

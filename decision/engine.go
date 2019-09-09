@@ -18,6 +18,7 @@ import (
 	"github.com/ipfs/go-peertaskqueue"
 	"github.com/ipfs/go-peertaskqueue/peertask"
 	peer "github.com/libp2p/go-libp2p-core/peer"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 // TODO consider taking responsibility for other types of requests. For
@@ -113,6 +114,8 @@ type Engine struct {
 	ledgerMap map[peer.ID]*ledger
 
 	ticker *time.Ticker
+
+	timeWaitedForOutbox time.Duration
 }
 
 // NewEngine creates a new block sending engine for the given block store
@@ -165,13 +168,28 @@ func (e *Engine) LedgerForPeer(p peer.ID) *Receipt {
 }
 
 func (e *Engine) taskWorker(ctx context.Context) {
+	go func() {
+		if opentracing.SpanFromContext(ctx) == nil {
+			return
+		}
+
+		for _ = range time.Tick(time.Second) {
+			log.LogKV(ctx,
+				"event", "engineTick",
+				"culmTimeWaitedForOutbox", e.timeWaitedForOutbox,
+			)
+		}
+	}()
+
 	defer close(e.outbox) // because taskWorker uses the channel exclusively
 	for {
 		oneTimeUse := make(chan *Envelope, 1) // buffer to prevent blocking
+		start := time.Now()
 		select {
 		case <-ctx.Done():
 			return
 		case e.outbox <- oneTimeUse:
+			e.timeWaitedForOutbox += time.Now().Sub(start)
 		}
 		// receiver is ready for an outoing envelope. let's prepare one. first,
 		// we must acquire a task from the PQ...
