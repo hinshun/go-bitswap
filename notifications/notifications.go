@@ -14,7 +14,7 @@ import (
 
 var log = logging.Logger("bitswap")
 
-const bufferSize = 10000
+const bufferSize = 16
 
 // PubSub is a simple interface for publishing blocks and being able to subscribe
 // for cids. It's used internally by bitswap to decouple receiving blocks
@@ -41,6 +41,8 @@ func New(ctx context.Context) PubSub {
 		for _ = range time.Tick(time.Second) {
 			log.LogKV(ctx,
 				"event", "pubSubTick",
+				"numPublish", ps.numPublish,
+				"numSubscribe", ps.numSubscribe,
 				"culmTimeWaitingToPublish", ps.culmTimeWaitingToPublish,
 				"culmTimeWaitingToSubscribe", ps.culmTimeWaitingToSubscribe,
 			)
@@ -57,6 +59,8 @@ type impl struct {
 	closed chan struct{}
 
 	ctx                        context.Context
+	numPublish                 int
+	numSubscribe               int
 	culmTimeWaitingToPublish   time.Duration
 	culmTimeWaitingToSubscribe time.Duration
 }
@@ -72,16 +76,8 @@ func (ps *impl) Publish(block blocks.Block) {
 
 	start := time.Now()
 	ps.wrapped.Pub(block, block.Cid().KeyString())
-	elapsed := time.Now().Sub(start)
-
-	if opentracing.SpanFromContext(ps.ctx) != nil {
-		log.LogKV(ps.ctx,
-			"event", "pubsub.Publish",
-			"duration", elapsed,
-		)
-	}
-
-	ps.culmTimeWaitingToPublish += elapsed
+	ps.culmTimeWaitingToPublish += time.Now().Sub(start)
+	ps.numPublish++
 }
 
 func (ps *impl) Shutdown() {
@@ -124,6 +120,7 @@ func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Bl
 	start := time.Now()
 	ps.wrapped.AddSubOnceEach(valuesCh, toStrings(keys)...)
 	ps.culmTimeWaitingToSubscribe += time.Now().Sub(start)
+	ps.numSubscribe++
 
 	go func() {
 		defer func() {
