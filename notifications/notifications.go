@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pubsub "github.com/cskr/pubsub"
+	"github.com/google/uuid"
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log"
@@ -28,9 +29,10 @@ type PubSub interface {
 // New generates a new PubSub interface.
 func New(ctx context.Context) PubSub {
 	ps := &impl{
-		ctx:     ctx,
-		wrapped: pubsub.New(bufferSize),
-		closed:  make(chan struct{}),
+		ctx:         ctx,
+		wrapped:     pubsub.New(bufferSize),
+		subscribers: make(map[cid.Cid]map[string]chan<- blocks.Block),
+		closed:      make(chan struct{}),
 	}
 
 	go func() {
@@ -58,6 +60,9 @@ type impl struct {
 
 	closed chan struct{}
 
+	mu          sync.RWMutex
+	subscribers map[cid.Cid]map[string]chan<- blocks.Block
+
 	ctx                        context.Context
 	numPublish                 int
 	numSubscribe               int
@@ -75,6 +80,14 @@ func (ps *impl) Publish(block blocks.Block) {
 	}
 
 	start := time.Now()
+
+	ps.mu.Lock()
+	for id, subscriber := range ps.subscribers[block.Cid()] {
+		subscriber <- block
+		delete(ps.subscribers[block.Cid()], id)
+	}
+	ps.mu.Unlock()
+
 	ps.wrapped.Pub(block, block.Cid().KeyString())
 	ps.culmTimeWaitingToPublish += time.Now().Sub(start)
 	ps.numPublish++
@@ -98,7 +111,6 @@ func (ps *impl) Shutdown() {
 func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Block {
 
 	blocksCh := make(chan blocks.Block, len(keys))
-	valuesCh := make(chan interface{}, len(keys)) // provide our own channel to control buffer, prevent blocking
 	if len(keys) == 0 {
 		close(blocksCh)
 		return blocksCh
@@ -115,51 +127,30 @@ func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Bl
 	default:
 	}
 
-	// AddSubOnceEach listens for each key in the list, and closes the channel
-	// once all keys have been received
-	start := time.Now()
-	ps.wrapped.AddSubOnceEach(valuesCh, toStrings(keys)...)
-	ps.culmTimeWaitingToSubscribe += time.Now().Sub(start)
-	ps.numSubscribe++
+	id := uuid.New().String()
+	ps.mu.Lock()
+	for _, key := range keys {
+		subscribers, ok := ps.subscribers[key]
+		if !ok {
+			subscribers = make(map[string]chan<- blocks.Block)
+		}
+		subscribers[id] = blocksCh
+		ps.subscribers[key] = subscribers
+	}
+	ps.mu.Unlock()
 
 	go func() {
-		defer func() {
-			close(blocksCh)
-
-			ps.lk.RLock()
-			defer ps.lk.RUnlock()
-			// Don't touch the pubsub instance if we're
-			// already closed.
-			select {
-			case <-ps.closed:
-				return
-			default:
-			}
-
-			ps.wrapped.Unsub(valuesCh)
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ps.closed:
-			case val, ok := <-valuesCh:
-				if !ok {
-					return
-				}
-				block, ok := val.(blocks.Block)
-				if !ok {
-					return
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case blocksCh <- block: // continue
-				case <-ps.closed:
-				}
-			}
+		select {
+		case <-ctx.Done():
+		case <-ps.closed:
 		}
+
+		ps.mu.Lock()
+		close(blocksCh)
+		for _, key := range keys {
+			delete(ps.subscribers[key], id)
+		}
+		ps.mu.Unlock()
 	}()
 
 	return blocksCh

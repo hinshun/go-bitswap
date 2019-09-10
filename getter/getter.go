@@ -86,7 +86,7 @@ func AsyncGetBlocks(ctx context.Context, sessctx context.Context, keys []cid.Cid
 	// Send the want request for the keys to the network
 	want(ctx, keys)
 
-	out := make(chan blocks.Block, 1024)
+	out := make(chan blocks.Block)
 	go handleIncoming(ctx, sessctx, remaining, promise, out, cwants)
 	return out, nil
 }

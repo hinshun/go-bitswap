@@ -15,7 +15,7 @@ func TestDuplicates(t *testing.T) {
 	b1 := blocks.NewBlock([]byte("1"))
 	b2 := blocks.NewBlock([]byte("2"))
 
-	n := New()
+	n := New(context.Background())
 	defer n.Shutdown()
 	ch := n.Subscribe(context.Background(), b1.Cid(), b2.Cid())
 
@@ -39,7 +39,7 @@ func TestDuplicates(t *testing.T) {
 func TestPublishSubscribe(t *testing.T) {
 	blockSent := blocks.NewBlock([]byte("Greetings from The Interval"))
 
-	n := New()
+	n := New(context.Background())
 	defer n.Shutdown()
 	ch := n.Subscribe(context.Background(), blockSent.Cid())
 
@@ -57,7 +57,7 @@ func TestSubscribeMany(t *testing.T) {
 	e1 := blocks.NewBlock([]byte("1"))
 	e2 := blocks.NewBlock([]byte("2"))
 
-	n := New()
+	n := New(context.Background())
 	defer n.Shutdown()
 	ch := n.Subscribe(context.Background(), e1.Cid(), e2.Cid())
 
@@ -81,7 +81,7 @@ func TestSubscribeMany(t *testing.T) {
 func TestDuplicateSubscribe(t *testing.T) {
 	e1 := blocks.NewBlock([]byte("1"))
 
-	n := New()
+	n := New(context.Background())
 	defer n.Shutdown()
 	ch1 := n.Subscribe(context.Background(), e1.Cid())
 	ch2 := n.Subscribe(context.Background(), e1.Cid())
@@ -103,7 +103,7 @@ func TestDuplicateSubscribe(t *testing.T) {
 func TestShutdownBeforeUnsubscribe(t *testing.T) {
 	e1 := blocks.NewBlock([]byte("1"))
 
-	n := New()
+	n := New(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := n.Subscribe(ctx, e1.Cid()) // no keys provided
 	n.Shutdown()
@@ -120,7 +120,7 @@ func TestShutdownBeforeUnsubscribe(t *testing.T) {
 }
 
 func TestSubscribeIsANoopWhenCalledWithNoKeys(t *testing.T) {
-	n := New()
+	n := New(context.Background())
 	defer n.Shutdown()
 	ch := n.Subscribe(context.Background()) // no keys provided
 	if _, ok := <-ch; ok {
@@ -134,7 +134,7 @@ func TestCarryOnWhenDeadlineExpires(t *testing.T) {
 	fastExpiringCtx, cancel := context.WithTimeout(context.Background(), impossibleDeadline)
 	defer cancel()
 
-	n := New()
+	n := New(context.Background())
 	defer n.Shutdown()
 	block := blocks.NewBlock([]byte("A Missed Connection"))
 	blockChannel := n.Subscribe(fastExpiringCtx, block.Cid())
@@ -146,7 +146,7 @@ func TestDoesNotDeadLockIfContextCancelledBeforePublish(t *testing.T) {
 
 	g := blocksutil.NewBlockGenerator()
 	ctx, cancel := context.WithCancel(context.Background())
-	n := New()
+	n := New(context.Background())
 	defer n.Shutdown()
 
 	t.Log("generate a large number of blocks. exceed default buffer")
