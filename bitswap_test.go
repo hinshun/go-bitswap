@@ -289,7 +289,7 @@ func PerformDistributionTest(t *testing.T, numInstances, numBlocks int) {
 	instances := ig.Instances(numInstances)
 	blocks := bg.Blocks(numBlocks)
 
-	fmt.Println("@@Give the blocks to the first instance")
+	t.Log("Give the blocks to the first instance")
 
 	var blkeys []cid.Cid
 	first := instances[0]
@@ -301,12 +301,12 @@ func PerformDistributionTest(t *testing.T, numInstances, numBlocks int) {
 		}
 	}
 
-	fmt.Println("@@Distribute!")
+	t.Log("Distribute!")
 
 	wg := sync.WaitGroup{}
 	errs := make(chan error)
 
-	for i, inst := range instances[1:] {
+	for _, inst := range instances[1:] {
 		wg.Add(1)
 		go func(inst testinstance.Instance) {
 			defer wg.Done()
@@ -314,19 +314,13 @@ func PerformDistributionTest(t *testing.T, numInstances, numBlocks int) {
 			if err != nil {
 				errs <- err
 			}
-			fmt.Printf("instance [%d] getting %d blocks\n", i, len(blkeys))
-			count := 0
-			for blk := range outch {
-				count++
-				fmt.Printf("instance [%d] got block %q\n", i, blk.Cid())
-				fmt.Printf("instance [%d] %d / %d blocks\n", i, count, len(blkeys))
+			for range outch {
 			}
 		}(inst)
 	}
 
 	go func() {
 		wg.Wait()
-		fmt.Println("closing errs!")
 		close(errs)
 	}()
 
@@ -336,7 +330,7 @@ func PerformDistributionTest(t *testing.T, numInstances, numBlocks int) {
 		}
 	}
 
-	fmt.Println("@@Verify!")
+	t.Log("Verify!")
 
 	for _, inst := range instances {
 		for _, b := range blocks {
