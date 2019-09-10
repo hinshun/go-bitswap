@@ -73,7 +73,7 @@ func New(ctx context.Context, peerHandler PeerHandler) *WantManager {
 	wantlistGauge := metrics.NewCtx(ctx, "wantlist_total",
 		"Number of items in wantlist.").Gauge()
 	wm := &WantManager{
-		wantMessages:  make(chan wantMessage, 10),
+		wantMessages:  make(chan wantMessage, 1000),
 		wl:            wantlist.NewSessionTrackedWantlist(),
 		bcwl:          wantlist.NewSessionTrackedWantlist(),
 		ctx:           ctx,
