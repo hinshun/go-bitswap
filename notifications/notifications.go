@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -32,6 +33,7 @@ func New(ctx context.Context) PubSub {
 		ctx:         ctx,
 		wrapped:     pubsub.New(bufferSize),
 		subscribers: make(map[cid.Cid]map[string]chan<- blocks.Block),
+		refcount: make(map[string]int),
 		closed:      make(chan struct{}),
 	}
 
@@ -62,6 +64,7 @@ type impl struct {
 
 	mu          sync.RWMutex
 	subscribers map[cid.Cid]map[string]chan<- blocks.Block
+	refcount map[string]int
 
 	ctx                        context.Context
 	numPublish                 int
@@ -81,12 +84,22 @@ func (ps *impl) Publish(block blocks.Block) {
 
 	start := time.Now()
 
+	fmt.Println("publishing block")
+
 	ps.mu.Lock()
 	for id, subscriber := range ps.subscribers[block.Cid()] {
 		subscriber <- block
 		delete(ps.subscribers[block.Cid()], id)
+		ps.refcount[id]--
+
+		if ps.refcount[id] == 0 {
+			delete(ps.refcount, id)
+			close(subscriber)
+		}
 	}
 	ps.mu.Unlock()
+
+	fmt.Println("finish publishing block")
 
 	ps.wrapped.Pub(block, block.Cid().KeyString())
 	ps.culmTimeWaitingToPublish += time.Now().Sub(start)
@@ -94,6 +107,7 @@ func (ps *impl) Publish(block blocks.Block) {
 }
 
 func (ps *impl) Shutdown() {
+	fmt.Println("shutting down")
 	ps.lk.Lock()
 	defer ps.lk.Unlock()
 	select {
@@ -103,6 +117,7 @@ func (ps *impl) Shutdown() {
 	}
 	close(ps.closed)
 	ps.wrapped.Shutdown()
+	fmt.Println("finish shutting down")
 }
 
 // Subscribe returns a channel of blocks for the given |keys|. |blockChannel|
@@ -128,7 +143,12 @@ func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Bl
 	}
 
 	id := uuid.New().String()
+
+	fmt.Println("subscribing")
 	ps.mu.Lock()
+
+	ps.refcount[id] = len(keys)
+
 	for _, key := range keys {
 		subscribers, ok := ps.subscribers[key]
 		if !ok {
@@ -137,7 +157,9 @@ func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Bl
 		subscribers[id] = blocksCh
 		ps.subscribers[key] = subscribers
 	}
+
 	ps.mu.Unlock()
+	fmt.Println("finish adding subscriptions")
 
 	go func() {
 		select {
@@ -145,12 +167,14 @@ func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Bl
 		case <-ps.closed:
 		}
 
+		fmt.Println("cleaning up")
 		ps.mu.Lock()
 		close(blocksCh)
 		for _, key := range keys {
 			delete(ps.subscribers[key], id)
 		}
 		ps.mu.Unlock()
+		fmt.Println("finish cleaning up")
 	}()
 
 	return blocksCh
