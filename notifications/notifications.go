@@ -14,7 +14,7 @@ import (
 
 var log = logging.Logger("bitswap")
 
-const bufferSize = 1024
+const bufferSize = 10000
 
 // PubSub is a simple interface for publishing blocks and being able to subscribe
 // for cids. It's used internally by bitswap to decouple receiving blocks
