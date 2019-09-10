@@ -14,7 +14,7 @@ import (
 
 var log = logging.Logger("bitswap")
 
-const bufferSize = 64
+const bufferSize = 1024
 
 // PubSub is a simple interface for publishing blocks and being able to subscribe
 // for cids. It's used internally by bitswap to decouple receiving blocks
@@ -29,7 +29,7 @@ type PubSub interface {
 func New(ctx context.Context) PubSub {
 	ps := &impl{
 		ctx:     ctx,
-		wrapped: *pubsub.New(bufferSize),
+		wrapped: pubsub.New(bufferSize),
 		closed:  make(chan struct{}),
 	}
 
@@ -52,7 +52,7 @@ func New(ctx context.Context) PubSub {
 
 type impl struct {
 	lk      sync.RWMutex
-	wrapped pubsub.PubSub
+	wrapped *pubsub.PubSub
 
 	closed chan struct{}
 
