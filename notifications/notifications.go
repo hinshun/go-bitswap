@@ -72,7 +72,16 @@ func (ps *impl) Publish(block blocks.Block) {
 
 	start := time.Now()
 	ps.wrapped.Pub(block, block.Cid().KeyString())
-	ps.culmTimeWaitingToPublish += time.Now().Sub(start)
+	elapsed := time.Now().Sub(start)
+
+	if opentracing.SpanFromContext(ps.ctx) != nil {
+		log.LogKV(ps.ctx,
+			"event", "pubsub.Publish",
+			"duration", elapsed,
+		)
+	}
+
+	ps.culmTimeWaitingToPublish += elapsed
 }
 
 func (ps *impl) Shutdown() {
