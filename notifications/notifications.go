@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	pubsub "github.com/cskr/pubsub"
 	"github.com/google/uuid"
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
@@ -30,7 +29,6 @@ type PubSub interface {
 func New(ctx context.Context) PubSub {
 	ps := &impl{
 		ctx:         ctx,
-		wrapped:     pubsub.New(bufferSize),
 		subscribers: make(map[cid.Cid]map[string]chan<- blocks.Block),
 		refcount:    make(map[string]int),
 		closed:      make(chan struct{}),
@@ -44,6 +42,7 @@ func New(ctx context.Context) PubSub {
 		for _ = range time.Tick(time.Second) {
 			log.LogKV(ctx,
 				"event", "pubSubTick",
+				"proof", "newCommit",
 				"numPublish", ps.numPublish,
 				"numSubscribe", ps.numSubscribe,
 				"culmTimeWaitingToPublish", ps.culmTimeWaitingToPublish,
@@ -56,8 +55,7 @@ func New(ctx context.Context) PubSub {
 }
 
 type impl struct {
-	lk      sync.RWMutex
-	wrapped *pubsub.PubSub
+	lk sync.RWMutex
 
 	closed chan struct{}
 
@@ -81,6 +79,25 @@ func (ps *impl) Publish(block blocks.Block) {
 	default:
 	}
 
+	// ps.mu.Lock()
+	// subscribers := ps.subscribers[block.Cid()]
+	// ps.mu.Unlock()
+
+	// for id, subscriber := range subscribers {
+	// 	go func() {
+	// 		subscriber <- block
+
+	// 		ps.mu.Lock()
+	// 		delete(ps.subscribers[block.Cid()], id)
+	// 		ps.refcount[id]--
+	// 		if ps.refcount[id] == 0 {
+	// 			close(subscriber)
+	// 			delete(ps.refcount, id)
+	// 		}
+	// 		ps.mu.Unlock()
+	// 	}()
+	// }
+
 	start := time.Now()
 
 	ps.mu.Lock()
@@ -96,7 +113,6 @@ func (ps *impl) Publish(block blocks.Block) {
 	}
 	ps.mu.Unlock()
 
-	ps.wrapped.Pub(block, block.Cid().KeyString())
 	ps.culmTimeWaitingToPublish += time.Now().Sub(start)
 	ps.numPublish++
 }
@@ -110,7 +126,6 @@ func (ps *impl) Shutdown() {
 	default:
 	}
 	close(ps.closed)
-	ps.wrapped.Shutdown()
 }
 
 // Subscribe returns a channel of blocks for the given |keys|. |blockChannel|
