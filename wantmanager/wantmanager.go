@@ -109,13 +109,6 @@ func New(ctx context.Context, peerHandler PeerHandler) *WantManager {
 // WantBlocks adds the given cids to the wantlist, tracked by the given session.
 func (wm *WantManager) WantBlocks(ctx context.Context, ks []cid.Cid, wantHaves []cid.Cid, sendDontHave bool, peers []peer.ID, ses uint64) {
 	log.Debugf("[wantlist] want blocks; cids=%s, peers=%s, ses=%d", ks, peers, ses)
-	if opentracing.SpanFromContext(ctx) != nil {
-		log.LogKV(ctx,
-			"event", "wantBlocks",
-			"wants", len(ks),
-			"peers", len(peers),
-		)
-	}
 	wm.addEntries(ctx, ks, wantHaves, sendDontHave, peers, false, ses)
 }
 

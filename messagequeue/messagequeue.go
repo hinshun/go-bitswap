@@ -51,6 +51,8 @@ type MessageQueue struct {
 	rebroadcastTimer      *time.Timer
 
 	culmTimeWaitedToAddMessage time.Duration
+	errCount                   int
+	sleepCount                 int
 }
 
 // New creats a new MessageQueue.
@@ -75,6 +77,8 @@ func New(ctx context.Context, p peer.ID, network MessageNetwork) *MessageQueue {
 				"event", "messageQueueTick",
 				"peer", p.Pretty(),
 				"culmTimeWaitedToAddMessage", mq.culmTimeWaitedToAddMessage,
+				"errCount", mq.errCount,
+				"sleepCount", mq.sleepCount,
 			)
 		}
 	}()
@@ -290,6 +294,7 @@ func (mq *MessageQueue) attemptSendAndRecovery(message bsmsg.BitSwapMessage) boo
 	if err == nil {
 		return true
 	}
+	mq.errCount++
 
 	log.Infof("bitswap send error: %s", err)
 	_ = mq.sender.Reset()
@@ -301,6 +306,7 @@ func (mq *MessageQueue) attemptSendAndRecovery(message bsmsg.BitSwapMessage) boo
 	case <-mq.ctx.Done():
 		return true
 	case <-time.After(time.Millisecond * 100):
+		mq.sleepCount++
 		// wait 100ms in case disconnect notifications are still propogating
 		log.Warning("SendMsg errored but neither 'done' nor context.Done() were set")
 	}

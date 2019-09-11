@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	bsgetter "github.com/ipfs/go-bitswap/getter"
@@ -100,6 +99,7 @@ type Session struct {
 	id    uint64
 
 	culmTimeWaitedForReceiveFrom time.Duration
+	lastIdleTick                 time.Time
 }
 
 // New creates a new bitswap session whose lifetime is bounded by the
@@ -149,16 +149,6 @@ func (s *Session) ReceiveFrom(from peer.ID, ks []cid.Cid, haves []cid.Cid, dontH
 	if len(interestedKs) > 0 || len(wantedHaves) == 0 || wantedDontHavesCount > 0 {
 		log.Infof("Ses%d: ReceiveFrom %s: %d / %d blocks, %d / %d haves, %d / %d dont haves\n",
 			s.id, from, len(interestedKs), len(ks), len(wantedHaves), len(haves), wantedDontHavesCount, len(dontHaves))
-
-		if opentracing.SpanFromContext(s.ctx) != nil {
-			log.LogKV(s.ctx,
-				"event", "receiveFrom",
-				"from", from,
-				"interested", fmt.Sprintf("%d / %d blocks", len(interestedKs), len(ks)),
-				"haves", fmt.Sprintf("%d / %d blocks", len(wantedHaves), len(haves)),
-				"dont-haves", fmt.Sprintf("%d / %d blocks", wantedDontHavesCount, len(dontHaves)),
-			)
-		}
 	}
 
 	if len(interestedKs) == 0 && len(wantedHaves) == 0 {
@@ -331,6 +321,18 @@ func (s *Session) run(ctx context.Context) {
 func (s *Session) handleIdleTick(ctx context.Context) {
 	live := s.sw.PrepareBroadcast()
 	log.Infof("Ses%d: Idle tick: broadcast %d keys\n", s.id, len(live))
+	if opentracing.SpanFromContext(ctx) != nil {
+		if s.lastIdleTick.IsZero() {
+			s.lastIdleTick = time.Now()
+		}
+
+		log.LogKV(ctx,
+			"event", "idleTick",
+			"liveWants", len(live),
+			"timeSinceLastIdleTick", time.Now().Sub(s.lastIdleTick),
+		)
+		s.lastIdleTick = time.Now()
+	}
 
 	// Broadcast these keys to everyone we're connected to
 	// TODO: Doesn't really make sense to record requests here if we're not getting blocks back

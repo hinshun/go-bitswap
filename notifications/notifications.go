@@ -42,7 +42,6 @@ func New(ctx context.Context) PubSub {
 		for _ = range time.Tick(time.Second) {
 			log.LogKV(ctx,
 				"event", "pubSubTick",
-				"proof", "newCommit",
 				"numPublish", ps.numPublish,
 				"numSubscribe", ps.numSubscribe,
 				"culmTimeWaitingToPublish", ps.culmTimeWaitingToPublish,
