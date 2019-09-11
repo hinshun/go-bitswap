@@ -90,8 +90,8 @@ func (ps *impl) Publish(block blocks.Block) {
 		ps.refcount[id]--
 
 		if ps.refcount[id] == 0 {
-			delete(ps.refcount, id)
 			close(subscriber)
+			delete(ps.refcount, id)
 		}
 	}
 	ps.mu.Unlock()
@@ -156,7 +156,10 @@ func (ps *impl) Subscribe(ctx context.Context, keys ...cid.Cid) <-chan blocks.Bl
 		}
 
 		ps.mu.Lock()
-		close(blocksCh)
+		if ps.refcount[id] > 0 {
+			close(blocksCh)
+			delete(ps.refcount, id)
+		}
 		for _, key := range keys {
 			delete(ps.subscribers[key], id)
 		}
