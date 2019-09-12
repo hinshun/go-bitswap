@@ -338,7 +338,9 @@ func (e *Engine) MessageReceived(p peer.ID, m bsmsg.BitSwapMessage) {
 				// e.peerRequestQueue.Remove(taskId, p)
 				// taskId = fmt.Sprintf("b%s", entry.Cid.String())
 				// e.peerRequestQueue.Remove(taskId, p)
-				e.peerRequestQueue.Remove(entry.Cid, p)
+
+
+				// (hinshun): e.peerRequestQueue.Remove(entry.Cid, p)
 			}
 		} else {
 			// If it's a regular want, add it to the ledger and check if we
