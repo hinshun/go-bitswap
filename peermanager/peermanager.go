@@ -129,10 +129,10 @@ func (pm *PeerManager) SendCancels(ctx context.Context, cancelKs []cid.Cid) {
 	defer pm.Unlock()
 
 	// Send a CANCEL to each peer that has been sent a want-block or want-have
-	for p, ks := range pm.pwm.SendCancels(cancelKs) {
-		pqi := pm.getOrCreate(p)
-		pqi.pq.AddCancels(ks)
-	}
+	// for p, ks := range pm.pwm.SendCancels(cancelKs) {
+	// 	pqi := pm.getOrCreate(p)
+	// 	pqi.pq.AddCancels(ks)
+	// }
 }
 
 func (pm *PeerManager) PeerCanSendWants(p peer.ID, wants []cid.Cid) []cid.Cid {

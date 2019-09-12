@@ -84,7 +84,7 @@ func (wm *WantManager) ReceiveFrom(ctx context.Context, p peer.ID, blks []cid.Ci
 	wm.bpm.ReceiveFrom(p, haves, dontHaves)
 
 	// Send CANCEL to all peers with want-have / want-block
-	wm.peerHandler.SendCancels(ctx, blks)
+	// wm.peerHandler.SendCancels(ctx, blks)
 
 	// Inform PeerBroker
 	// wm.pbkr.WantAvailable(sessions)
@@ -126,7 +126,7 @@ func (wm *WantManager) RemoveSession(ctx context.Context, ses uint64) {
 	wm.bpm.RemoveKeys(cancelKs)
 
 	// Send CANCEL to all peers for blocks that no session is interested in anymore
-	wm.peerHandler.SendCancels(ctx, cancelKs)
+	// wm.peerHandler.SendCancels(ctx, cancelKs)
 }
 
 func (wm *WantManager) PeerCanSendWants(p peer.ID, wants []cid.Cid) []cid.Cid {
