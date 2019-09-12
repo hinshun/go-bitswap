@@ -242,16 +242,16 @@ func (mq *MessageQueue) sendMessage() {
 	for _, e := range entries {
 		if e.Cancel {
 			if e.WantType == pb.Message_Wantlist_Have {
-				log.Debugf("->%s: CANCEL-have %s\n", mq.p, e.Cid.String()[2:8])
+				log.Debugf("->%s: CANCEL-have %s\n", mq.p, e.Cid.String())
 			} else {
-				log.Debugf("->%s: CANCEL-block %s\n", mq.p, e.Cid.String()[2:8])
+				log.Debugf("->%s: CANCEL-block %s\n", mq.p, e.Cid.String())
 			}
 		} else {
 			if e.WantType == pb.Message_Wantlist_Have {
-				log.Debugf("->%s: want-have %s\n", mq.p, e.Cid.String()[2:8])
+				log.Debugf("->%s: want-have %s\n", mq.p, e.Cid.String())
 				// log.Warningf("->%s: want-have %s\n", mq.p, e.Cid.String()[2:8])
 			} else {
-				log.Debugf("->%s: want-block %s\n", mq.p, e.Cid.String()[2:8])
+				log.Debugf("->%s: want-block %s\n", mq.p, e.Cid.String())
 				// log.Warningf("->%s: want-block %s\n", mq.p, e.Cid.String()[2:8])
 			}
 		}

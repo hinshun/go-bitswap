@@ -184,12 +184,12 @@ func (s *Session) logReceiveFrom(from peer.ID, interestedKs []cid.Cid, haves []c
 	// 	s.id, from, len(interestedKs), len(wantedHaves), len(wantedDontHaves))
 	for _, c := range interestedKs {
 		// log.Debugf("Ses%d<-%s: block %s\n", s.id, from, c.String()[2:8])
-		log.Warningf("Ses%d<-%s: block %s\n", s.id, from, c.String()[2:8])
+		log.Warningf("Ses%d<-%s: block %s\n", s.id, from, c.String())
 	}
 	wantedHaves := s.sw.FilterWanted(haves)
 	for _, c := range wantedHaves {
 		// log.Debugf("Ses%d<-%s: HAVE %s\n", s.id, from, c.String()[2:8])
-		log.Warningf("Ses%d<-%s: HAVE %s\n", s.id, from, c.String()[2:8])
+		log.Warningf("Ses%d<-%s: HAVE %s\n", s.id, from, c.String())
 	}
 	// for _, c := range wantedDontHaves {
 	// 	log.Debugf("Ses%d<-%s: DONT_HAVE %s\n", s.id, from, c.String()[2:8])

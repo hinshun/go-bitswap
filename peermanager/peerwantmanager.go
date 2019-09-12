@@ -182,10 +182,10 @@ func (pwm *peerWantManager) String() string {
 	for p, ws := range pwm.peerWants {
 		b.WriteString(fmt.Sprintf("Peer %s: %d want-have / %d want-block:\n", p, ws.wantHaves.Len(), ws.wantBlocks.Len()))
 		for _, c := range ws.wantHaves.Keys() {
-			b.WriteString(fmt.Sprintf("  want-have  %s\n", c.String()[2:8]))
+			b.WriteString(fmt.Sprintf("  want-have  %s\n", c.String())
 		}
 		for _, c := range ws.wantBlocks.Keys() {
-			b.WriteString(fmt.Sprintf("  want-block %s\n", c.String()[2:8]))
+			b.WriteString(fmt.Sprintf("  want-block %s\n", c.String())
 		}
 	}
 	return b.String()

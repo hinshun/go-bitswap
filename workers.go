@@ -105,9 +105,9 @@ func (bs *Bitswap) sendBlocks(ctx context.Context, env *engine.Envelope) {
 			panic(err)
 		}
 		if blockPresence.Type == pb.Message_Have {
-			log.Infof("Sending HAVE %s to %s", c.String()[2:8], env.Peer)
+			log.Infof("Sending HAVE %s to %s", c.String(), env.Peer)
 		} else if blockPresence.Type == pb.Message_DontHave {
-			log.Infof("Sending DONT_HAVE %s to %s", c.String()[2:8], env.Peer)
+			log.Infof("Sending DONT_HAVE %s to %s", c.String(), env.Peer)
 		} else {
 			panic(fmt.Sprintf("unrecognized BlockPresence type %v", blockPresence.Type))
 		}

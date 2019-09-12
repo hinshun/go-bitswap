@@ -242,7 +242,7 @@ type potentialGain struct {
 }
 
 func (pg potentialGain) String() string {
-	return fmt.Sprintf("%s potential %f. Gain for %s: %f", pg.cid.String()[2:8], pg.potential, pg.peer, pg.maxGain)
+	return fmt.Sprintf("%s potential %f. Gain for %s: %f", pg.cid.String(), pg.potential, pg.peer, pg.maxGain)
 }
 
 func potentialGainLess(pgs []potentialGain) func(i, j int) bool {
